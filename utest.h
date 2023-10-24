@@ -4,12 +4,14 @@
 #include <string>
 #include <array>
 #include <concepts>
+#include <filesystem>
 
 // ------------------------------------------ HELPER MACROS
 
 #define STR2(x) #x
 #define STR(x) STR2(x)
-#define HLINE "------------------------------------"
+#define HLINE_BOLD "////////////////////////////////////"
+#define HLINE      "------------------------------------"
 
 namespace utest
 {
@@ -48,10 +50,34 @@ namespace utest
     // ------------------------------------------ STRING HELPERS
 
     template <typename T> inline std::string to_string(const T& value) { return std::to_string(value); }
-    inline std::string to_string(const char*& value) { return std::string(value); }
+    inline std::string to_string(const char* const value) { return std::string(value); }
 
     template <range_like Range>
-    std::string to_string(const Range& range, std::string_view sep = ", ")
+    std::string to_string(const Range& range)
+    {
+        static constexpr const char* sep = ", ";
+        std::string result;
+        result.reserve(256);
+
+        std::ptrdiff_t item_count = 0;
+        for (auto it = std::begin(range); it != std::end(range); it++)
+            item_count++;
+
+        std::ptrdiff_t item_index = 0;
+        for (auto it = std::begin(range); it != std::end(range); it++)
+        {
+            result += to_string(*it);
+            if (item_index < item_count - 1)
+            {
+                result += sep;
+            }
+            item_index++;
+        }
+        return result;
+    }
+
+    template <range_like Range>
+    std::string join(const Range& range, std::string_view sep = ", ")
     {
         std::string result;
         result.reserve(256);
@@ -102,9 +128,11 @@ namespace utest
     {
         quiet,
         failures,
+        passed,
         everything
     };
     static constexpr verbosity default_verbosity = verbosity::failures;
+    static constexpr const char* default_sourceroot = "";
 
     struct fixture;
 
@@ -113,6 +141,7 @@ namespace utest
         struct config
         {
             static verbosity verbosity;
+            static std::filesystem::path source_root;
         };
 
         static fixture* begin;
@@ -121,6 +150,12 @@ namespace utest
 
         static int runall();
         static int run(int argc, char** argv);
+
+        static std::string ez_file(const char* filepath)
+        {
+            std::filesystem::path fp(filepath);
+            return std::filesystem::relative(fp, config::source_root).string();
+        }
     };
 
     // ------------------------------------------ BASE TEST DEFINITION
@@ -132,7 +167,7 @@ namespace utest
             int current = 0;
         } sections;
 
-        bool sectionchanged = true;
+        mutable bool section_changed = true;
         int cases = 0;
         int caseindex = 0;
         int errors = 0;
@@ -156,46 +191,81 @@ namespace utest
 
         void setup()
         {
-            printf(HLINE "\n");
-            printf("~~~~~~~ Running '%s' test cases\n", name());
+            if (suite::config::verbosity > verbosity::quiet)
+                printf(HLINE_BOLD " Running '%s' test cases\n", name());
         }
         void teardown()
         {
-            printf("[%d/%d]", (cases - errors), cases);
             if (errors == 0)
-                printf(" All cases passed\n");
+                printf(HLINE_BOLD " '%s' tests passed [%d/%d]\n"
+                    , name()
+                    , (cases - errors), cases);
             else
-                printf(" %d cases failed !\n", errors);
+                printf(HLINE_BOLD " '%s' tests failed [%d/%d] %d cases didn't pass\n"
+                    , name()
+                    , (cases - errors), cases
+                    , errors);
+        }
+
+        void push_section(const char* name) { section_changed = true; sections.current++; sections.names[sections.current] = name; }
+        void pop_section() { section_changed = true; sections.current--; }
+        void add_case() { cases++; }
+
+        void print_section() const
+        {
+            if (!section_changed)
+                return;
+
+            section_changed = false;
+            const auto name_range = make_range(sections.names.begin(), sections.names.begin() + sections.current + 1);
+            const auto sectionString = join(name_range, ".");
+            printf("\n> Section '%s'\n", sectionString.c_str());
             printf(HLINE "\n");
         }
 
-        void print_section()
+        void print_case_header(bool success, const char* location) const
         {
-            if (!sectionchanged)
-                return;
-
-            sectionchanged = false;
-            const auto sectionString = to_string(make_range(sections.names.begin(), sections.names.begin() + sections.current + 1), ".");
-            printf("> Section '%s'\n", sectionString.c_str());
+            printf("[%d] -> %s %s\n"
+                , caseindex
+                , success ? "Success" : "Failure"
+                , location);
         }
-        void push_section(const char* name) { sectionchanged = true; sections.current++; sections.names[sections.current] = name; }
-        void pop_section() { sectionchanged = true; sections.current--; }
-        void add_case() { cases++; }
-        void add_result(bool success, const char* location, const char* condexpr, const char* condmsg)
-        {
-            if (suite::config::verbosity != verbosity::quiet)
-                print_section();
 
-            if (success)
-            {
-                if (suite::config::verbosity == verbosity::everything)
-                    printf("\t%d - %s : \"%s\" -> Success\n", caseindex, location, condexpr);
-            } else {
+        void print_case_expression(const char* op, const char* left, const char* right)
+        {
+            printf("\t~~ While evaluating:\n\t\t\"%s\"\n\t\t\t%s\n\t\t\"%s\"\n\n", left, op, right);
+        }
+
+        void print_case_evaluation(const char* left, const char* right)
+        {
+            printf("\t~~ Left: %s\n\t~~ Right: %s\n"
+                , left
+                , right);
+        }
+
+        void add_result(bool success
+            , const char* location
+            , const char* op
+            , const char* left_expression, const char* right_expression
+            , const char* left_evaluated, const char* right_evaluated)
+        {
+            if (!success)
                 errors++;
-                if (suite::config::verbosity != verbosity::quiet)
-                    printf("\t%d - %s : \"%s\" -> Failure: \"%s\"\n"
-                        , caseindex, location
-                        , condexpr, condmsg);
+
+            if (suite::config::verbosity > verbosity::quiet)
+            {
+                if (!success || (suite::config::verbosity >= verbosity::passed))
+                {
+                    print_section();
+                    if (!success) printf("\n");
+                    print_case_header(success, location);
+                    if (!success || (suite::config::verbosity >= verbosity::everything))
+                    {
+                        print_case_expression(op, left_expression, right_expression);
+                        print_case_evaluation(left_evaluated, right_evaluated);
+                        printf("\n");
+                    }
+                }
             }
             caseindex++;
         }
@@ -213,18 +283,17 @@ namespace utest
     // ------------------------------------------ TEST SUITE IMPL
 
     verbosity suite::config::verbosity = default_verbosity;
+    std::filesystem::path suite::config::source_root = default_sourceroot;
     fixture* suite::begin = nullptr;
     fixture* suite::end = nullptr;
     fixture* suite::current = nullptr;
 
     int suite::runall()
     {
+        int numpassed = 0;
         int numtests = 0;
         int numcases = 0;
         int numerrors = 0;
-
-        printf(HLINE "\n");
-        printf("Begin running unit tests\n");
 
         if (begin == end)
         {
@@ -235,6 +304,8 @@ namespace utest
             numtests++;
             numcases += fixture->cases;
             numerrors += fixture->errors;
+            if (fixture->errors == 0)
+                numpassed++;
         } else {
             for (auto fixture = begin; fixture != end; fixture = fixture->next_test)
             {
@@ -244,15 +315,14 @@ namespace utest
                 numtests++;
                 numcases += fixture->cases;
                 numerrors += fixture->errors;
+                if (fixture->errors == 0)
+                    numpassed++;
             }
         }
 
-        printf("%d test(s) ran\n", numtests);
-        printf("[%d/%d] case(s) passed (%d errors)\n"
-            , numcases - numerrors
-            , numcases
-            , numerrors);
-        printf(HLINE "\n");
+        printf(HLINE_BOLD " %d tests (%d passed), %d cases (%d passed)\n"
+            , numtests, numpassed
+            , numcases, numcases - numerrors);
         return numerrors;
     }
 
@@ -265,7 +335,14 @@ namespace utest
                 i++;
                 if (!strcmp(argv[i], "quiet")) { suite::config::verbosity = verbosity::quiet; }
                 if (!strcmp(argv[i], "failures")) { suite::config::verbosity = verbosity::failures; }
+                if (!strcmp(argv[i], "passed")) { suite::config::verbosity = verbosity::passed; }
                 if (!strcmp(argv[i], "everything")) { suite::config::verbosity = verbosity::everything; }
+            }
+
+            if ((!strcmp(argv[i], "--source_root") || !strcmp(argv[i], "-s")) && i + 1 < argc)
+            {
+                i++;
+                suite::config::source_root = argv[i];
             }
         }
         return runall();
@@ -286,20 +363,21 @@ namespace utest
 
 #define __TEST_CURRENT (*utest::suite::current)
 #define __TEST_BEGIN() { __TEST_CURRENT.add_case()
-#define __TEST_STR(value) "(" + utest::to_string(value) + ")"
-#define __TEST_CHECK(condition, location, condexpr, condmsg) { __TEST_CURRENT.add_result((condition), location, condexpr, condmsg);  }
+#define __TEST_STR(value) ("(" + utest::to_string(value) + ")")
 #define __TEST_END() }
+#define __TEST_FILE() utest::suite::ez_file(__FILE__)
+#define __TEST_LOCATION() std::string(__TEST_FILE() + std::string(":" STR(__LINE__)))
 
 // ------------------------------------------ TEST MACROS, PUBLIC
 
 #define test_op(left, right, op, invop)                             \
     __TEST_BEGIN();                                                 \
-    __TEST_CHECK(                                                   \
+    __TEST_CURRENT.add_result(                                      \
           utest::compare(left, right,                               \
             [](const auto& l, const auto& r) { return l op r; })    \
-        , __FILE__ ":" STR(__LINE__)                                \
-        , STR(left op right)                                        \
-        , (__TEST_STR(left) + std::string(" " STR(invop) " ") + __TEST_STR(right)).c_str() \
+        , __TEST_LOCATION().c_str()                                 \
+        , STR(op), STR(left), STR(right)                            \
+        , __TEST_STR(left).c_str(), __TEST_STR(right).c_str()       \
     );                                                              \
     __TEST_END()
 
