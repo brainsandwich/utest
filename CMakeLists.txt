@@ -7,4 +7,4 @@ target_include_directories(utest INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(utest_main ${CMAKE_CURRENT_SOURCE_DIR}/utest_main.cc)
 add_library(utest::main ALIAS utest_main)
-target_link_libraries(utest::main PUBLIC utest::utest)
+target_link_libraries(utest_main PUBLIC utest::utest)
