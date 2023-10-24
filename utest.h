@@ -93,20 +93,46 @@ namespace utest
 
     // ------------------------------------------ COMPARISON
 
-    template <typename Left, typename Right, typename Fn>
-    bool compare(const Left& left, const Right& right, Fn&& predicate)
+    enum class comparison_type
     {
-        return predicate(left, right);
+        equal,
+        not_equal,
+        greater_than,
+        greater_equal,
+        less_than,
+        less_equal
+    };
+
+    template <typename Left, typename Right> bool compare_equal(const Left& left, const Right& right) { return left == right; }
+    template <typename Left, typename Right> bool compare_not_equal(const Left& left, const Right& right) { return left != right; }
+    template <typename Left, typename Right> bool compare_greater_than(const Left& left, const Right& right) { return left > right; }
+    template <typename Left, typename Right> bool compare_greater_equal(const Left& left, const Right& right) { return left >= right; }
+    template <typename Left, typename Right> bool compare_less_than(const Left& left, const Right& right) { return left < right; }
+    template <typename Left, typename Right> bool compare_less_equal(const Left& left, const Right& right) { return left <= right; }
+
+    template <comparison_type Comp, typename Left, typename Right>
+    bool compare(const Left& left, const Right& right)
+    {
+        switch (Comp)
+        {
+            case comparison_type::equal: return compare_equal(left, right);
+            case comparison_type::not_equal: return compare_not_equal(left, right);
+            case comparison_type::greater_than: return compare_greater_than(left, right);
+            case comparison_type::greater_equal: return compare_greater_equal(left, right);
+            case comparison_type::less_than: return compare_less_than(left, right);
+            case comparison_type::less_equal: return compare_less_equal(left, right);
+        }
+        return false;
     }
 
-    template <range_like Left, range_like Right, typename Fn>
-    bool compare(const Left& left, const Right& right, Fn&& predicate)
+    template <comparison_type Comp, range_like Left, range_like Right>
+    bool compare(const Left& left, const Right& right)
     {
         auto l = std::begin(left);
         auto r = std::begin(right);
         while (true)
         {
-            if (!compare(*l, *r, predicate))
+            if (!compare<Comp>(*l, *r))
                 return false;
             
             l++;
@@ -370,23 +396,22 @@ namespace utest
 
 // ------------------------------------------ TEST MACROS, PUBLIC
 
-#define test_op(left, right, op, invop)                             \
-    __TEST_BEGIN();                                                 \
-    __TEST_CURRENT.add_result(                                      \
-          utest::compare(left, right,                               \
-            [](const auto& l, const auto& r) { return l op r; })    \
-        , __TEST_LOCATION().c_str()                                 \
-        , STR(op), STR(left), STR(right)                            \
-        , __TEST_STR(left).c_str(), __TEST_STR(right).c_str()       \
-    );                                                              \
+#define test_op(left, right, opsymbol, opmode)                          \
+    __TEST_BEGIN();                                                     \
+    __TEST_CURRENT.add_result(                                          \
+          utest::compare<opmode>(left, right)                           \
+        , __TEST_LOCATION().c_str()                                     \
+        , STR(opsymbol), STR(left), STR(right)                          \
+        , __TEST_STR(left).c_str(), __TEST_STR(right).c_str()           \
+    );                                                                  \
     __TEST_END()
 
-#define test_eq(left, right) test_op(left, right, ==, !=)
-#define test_ne(left, right) test_op(left, right, !=, ==)
-#define test_gt(left, right) test_op(left, right, >, <=)
-#define test_ge(left, right) test_op(left, right, >=, <)
-#define test_lt(left, right) test_op(left, right, <, >=)
-#define test_le(left, right) test_op(left, right, <=, >)
+#define test_eq(left, right) test_op(left, right, ==, utest::comparison_type::equal)
+#define test_ne(left, right) test_op(left, right, !=, utest::comparison_type::not_equal)
+#define test_gt(left, right) test_op(left, right, >, utest::comparison_type::greater_than)
+#define test_ge(left, right) test_op(left, right, >=, utest::comparison_type::greater_equal)
+#define test_lt(left, right) test_op(left, right, <, utest::comparison_type::less_than)
+#define test_le(left, right) test_op(left, right, <=, utest::comparison_type::less_equal)
 
 #define test_section(name) if (const auto s = utest::section(name))
 
