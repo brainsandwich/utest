@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 #include <array>
 #include <concepts>
 #include <filesystem>
@@ -10,8 +11,6 @@
 
 #define STR2(x) #x
 #define STR(x) STR2(x)
-#define HLINE_BOLD "////////////////////////////////////"
-#define HLINE      "------------------------------------"
 
 namespace utest
 {
@@ -43,17 +42,17 @@ namespace utest
     template <range_like Range>
     using iterator_type_t = decltype(std::begin(std::declval<Range&>()));
 
-    template <typename Iter> constexpr auto make_range(Iter first, Iter last) { return range(first, last); }
-    template <range_like Range> constexpr auto make_range(const Range& range) { return range(std::begin(range), std::end(range)); }
-    template <range_like Range> constexpr auto make_range(Range& range) { return range(std::begin(range), std::end(range)); }
+    template <typename Iter> static constexpr auto make_range(Iter first, Iter last) { return range(first, last); }
+    template <range_like Range> static constexpr auto make_range(const Range& range) { return range(std::begin(range), std::end(range)); }
+    template <range_like Range> static constexpr auto make_range(Range& range) { return range(std::begin(range), std::end(range)); }
 
     // ------------------------------------------ STRING HELPERS
 
     template <typename T> inline std::string to_string(const T& value) { return std::to_string(value); }
-    inline std::string to_string(const char* const value) { return std::string(value); }
+    static inline std::string to_string(const char* const value) { return std::string(value); }
 
     template <range_like Range>
-    std::string to_string(const Range& range)
+    static std::string to_string(const Range& range)
     {
         static constexpr const char* sep = ", ";
         std::string result;
@@ -77,7 +76,7 @@ namespace utest
     }
 
     template <range_like Range>
-    std::string join(const Range& range, std::string_view sep = ", ")
+    static std::string join(const Range& range, std::string_view sep = ", ")
     {
         std::string result;
         result.reserve(256);
@@ -103,15 +102,15 @@ namespace utest
         less_equal
     };
 
-    template <typename Left, typename Right> bool compare_equal(const Left& left, const Right& right) { return left == right; }
-    template <typename Left, typename Right> bool compare_not_equal(const Left& left, const Right& right) { return left != right; }
-    template <typename Left, typename Right> bool compare_greater_than(const Left& left, const Right& right) { return left > right; }
-    template <typename Left, typename Right> bool compare_greater_equal(const Left& left, const Right& right) { return left >= right; }
-    template <typename Left, typename Right> bool compare_less_than(const Left& left, const Right& right) { return left < right; }
-    template <typename Left, typename Right> bool compare_less_equal(const Left& left, const Right& right) { return left <= right; }
+    template <typename Left, typename Right> static bool compare_equal(const Left& left, const Right& right) { return left == right; }
+    template <typename Left, typename Right> static bool compare_not_equal(const Left& left, const Right& right) { return left != right; }
+    template <typename Left, typename Right> static bool compare_greater_than(const Left& left, const Right& right) { return left > right; }
+    template <typename Left, typename Right> static bool compare_greater_equal(const Left& left, const Right& right) { return left >= right; }
+    template <typename Left, typename Right> static bool compare_less_than(const Left& left, const Right& right) { return left < right; }
+    template <typename Left, typename Right> static bool compare_less_equal(const Left& left, const Right& right) { return left <= right; }
 
     template <comparison_type Comp, typename Left, typename Right>
-    bool compare(const Left& left, const Right& right)
+    static bool compare(const Left& left, const Right& right)
     {
         switch (Comp)
         {
@@ -126,7 +125,7 @@ namespace utest
     }
 
     template <comparison_type Comp, range_like Left, range_like Right>
-    bool compare(const Left& left, const Right& right)
+    static bool compare(const Left& left, const Right& right)
     {
         auto l = std::begin(left);
         auto r = std::begin(right);
@@ -157,8 +156,6 @@ namespace utest
         passed,
         everything
     };
-    static constexpr verbosity default_verbosity = verbosity::failures;
-    static constexpr const char* default_sourceroot = "";
 
     struct fixture;
 
@@ -170,220 +167,77 @@ namespace utest
             static std::filesystem::path source_root;
         };
 
-        static fixture* begin;
-        static fixture* end;
+        static std::vector<fixture*> fixtures;
         static fixture* current;
 
         static int runall();
         static int run(int argc, char** argv);
-
-        static std::string ez_file(const char* filepath)
-        {
-            std::filesystem::path fp(filepath);
-            return std::filesystem::relative(fp, config::source_root).string();
-        }
+        static std::string ez_file(const char* filepath);
     };
 
     // ------------------------------------------ BASE TEST DEFINITION
 
     struct fixture
     {
-        struct {
+        struct
+        {
             std::array<const char*, 32> names = { "main" };
             int current = 0;
         } sections;
 
         mutable bool section_changed = true;
+        bool printed_something = false;
         int cases = 0;
         int caseindex = 0;
         int errors = 0;
         fixture* next_test = nullptr;
 
-        fixture()
-        {
-            if (!suite::begin || !suite::end)
-            {
-                suite::begin = this;
-                suite::end = this;
-                suite::current = this;
-            } else {
-                suite::end->next_test = this;
-                suite::end = this;
-            }
-        }
+        fixture();
 
-        virtual const char* name() const = 0;
-        virtual void run() = 0;
+        void setup();
+        void teardown();
 
-        void setup()
-        {
-            if (suite::config::verbosity > verbosity::quiet)
-                printf(HLINE_BOLD " Running '%s' test cases\n", name());
-        }
-        void teardown()
-        {
-            if (errors == 0)
-                printf(HLINE_BOLD " '%s' tests passed [%d/%d]\n"
-                    , name()
-                    , (cases - errors), cases);
-            else
-                printf(HLINE_BOLD " '%s' tests failed [%d/%d] %d cases didn't pass\n"
-                    , name()
-                    , (cases - errors), cases
-                    , errors);
-        }
+        void push_section(const char* name);
+        void pop_section();
+        void add_case();
 
-        void push_section(const char* name) { section_changed = true; sections.current++; sections.names[sections.current] = name; }
-        void pop_section() { section_changed = true; sections.current--; }
-        void add_case() { cases++; }
+        void print_section() const;
+        void print_case_header(bool success, const char* location) const;
+        void print_case_expression(const char* op, const char* left, const char* right);
+        void print_case_evaluation(const char* left, const char* right);
 
-        void print_section() const
-        {
-            if (!section_changed)
-                return;
-
-            section_changed = false;
-            const auto name_range = make_range(sections.names.begin(), sections.names.begin() + sections.current + 1);
-            const auto sectionString = join(name_range, ".");
-            printf("\n> Section '%s'\n", sectionString.c_str());
-            printf(HLINE "\n");
-        }
-
-        void print_case_header(bool success, const char* location) const
-        {
-            printf("[%d] -> %s %s\n"
-                , caseindex
-                , success ? "Success" : "Failure"
-                , location);
-        }
-
-        void print_case_expression(const char* op, const char* left, const char* right)
-        {
-            printf("\t~~ While evaluating:\n\t\t\"%s\"\n\t\t\t%s\n\t\t\"%s\"\n\n", left, op, right);
-        }
-
-        void print_case_evaluation(const char* left, const char* right)
-        {
-            printf("\t~~ Left: %s\n\t~~ Right: %s\n"
-                , left
-                , right);
-        }
-
-        void add_result(bool success
+        void add_result(
+              bool success
             , const char* location
             , const char* op
             , const char* left_expression, const char* right_expression
-            , const char* left_evaluated, const char* right_evaluated)
-        {
-            if (!success)
-                errors++;
+            , const char* left_evaluated, const char* right_evaluated);
 
-            if (suite::config::verbosity > verbosity::quiet)
-            {
-                if (!success || (suite::config::verbosity >= verbosity::passed))
-                {
-                    print_section();
-                    if (!success) printf("\n");
-                    print_case_header(success, location);
-                    if (!success || (suite::config::verbosity >= verbosity::everything))
-                    {
-                        print_case_expression(op, left_expression, right_expression);
-                        print_case_evaluation(left_evaluated, right_evaluated);
-                        printf("\n");
-                    }
-                }
-            }
-            caseindex++;
-        }
+        virtual const char* name() const = 0;
+        virtual const char* group() const = 0;
+        virtual void run() = 0;
     };
 
     // ------------------------------------------ TEST SECTION
 
     struct section
     {
-        section(const char* name) { suite::current->push_section(name); }
-        ~section() { suite::current->pop_section(); }
-        operator bool() const { return true; }
+        section(const char* name);
+        ~section();
+        operator bool() const;
     };
-
-    // ------------------------------------------ TEST SUITE IMPL
-
-    verbosity suite::config::verbosity = default_verbosity;
-    std::filesystem::path suite::config::source_root = default_sourceroot;
-    fixture* suite::begin = nullptr;
-    fixture* suite::end = nullptr;
-    fixture* suite::current = nullptr;
-
-    int suite::runall()
-    {
-        int numpassed = 0;
-        int numtests = 0;
-        int numcases = 0;
-        int numerrors = 0;
-
-        if (begin == end)
-        {
-            auto fixture = begin;
-            fixture->setup();
-            fixture->run();
-            fixture->teardown();
-            numtests++;
-            numcases += fixture->cases;
-            numerrors += fixture->errors;
-            if (fixture->errors == 0)
-                numpassed++;
-        } else {
-            for (auto fixture = begin; fixture != end; fixture = fixture->next_test)
-            {
-                fixture->setup();
-                fixture->run();
-                fixture->teardown();
-                numtests++;
-                numcases += fixture->cases;
-                numerrors += fixture->errors;
-                if (fixture->errors == 0)
-                    numpassed++;
-            }
-        }
-
-        printf(HLINE_BOLD " %d tests (%d passed), %d cases (%d passed)\n"
-            , numtests, numpassed
-            , numcases, numcases - numerrors);
-        return numerrors;
-    }
-
-    int suite::run(int argc, char** argv)
-    {
-        for (int i = 0; i < argc; i++)
-        {
-            if ((!strcmp(argv[i], "--verbosity") || !strcmp(argv[i], "-v")) && i + 1 < argc)
-            {
-                i++;
-                if (!strcmp(argv[i], "quiet")) { suite::config::verbosity = verbosity::quiet; }
-                if (!strcmp(argv[i], "failures")) { suite::config::verbosity = verbosity::failures; }
-                if (!strcmp(argv[i], "passed")) { suite::config::verbosity = verbosity::passed; }
-                if (!strcmp(argv[i], "everything")) { suite::config::verbosity = verbosity::everything; }
-            }
-
-            if ((!strcmp(argv[i], "--source_root") || !strcmp(argv[i], "-s")) && i + 1 < argc)
-            {
-                i++;
-                suite::config::source_root = argv[i];
-            }
-        }
-        return runall();
-    }
 }
 
 // ------------------------------------------ TEST MACROS, DEFINITION
 
-#define test_define(_name)                                          \
-    struct _name ## _fixture : utest::fixture                       \
+#define test_define(_group, _name)                                  \
+    struct _group ## _ ## _name ## _fixture : utest::fixture        \
     {                                                               \
         void run() override;                                        \
         const char* name() const override { return STR(_name); }    \
-    } _name ## _fixture_instance;                                   \
-    void _name ## _fixture::run()
+        const char* group() const override { return STR(_group); }  \
+    } _group ## _ ## _name ## _fixture_instance;                    \
+    void _group ## _ ## _name ## _fixture::run()
 
 // ------------------------------------------ TEST MACROS, PRIVATE
 
@@ -414,10 +268,3 @@ namespace utest
 #define test_le(left, right) test_op(left, right, <=, utest::comparison_type::less_equal)
 
 #define test_section(name) if (const auto s = utest::section(name))
-
-#if !defined(UTEST_NODECLARE_MAIN)
-    int main(int argc, char** argv)
-    {
-        return utest::suite::run(argc, argv);
-    }
-#endif
