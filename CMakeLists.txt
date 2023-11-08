@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16.0)
-project(utest VERSION 0.0.7)
+project(utest VERSION 0.0.8)
 
 set(CPM_SOURCE_CACHE "${CMAKE_CURRENT_SOURCE_DIR}/ext/fetch" CACHE STRING "")
 set(CPM_USE_LOCAL_PACKAGES ON CACHE BOOL "")

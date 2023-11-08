@@ -3,9 +3,6 @@
 #include <fmt/format.h>
 #include <fmt/color.h>
 
-#define HLINE_BOLD "////////////////////////////////////"
-#define HLINE      "------------------------------------"
-
 namespace utest
 {
     // ---------------------------------------- FIXTURE
@@ -17,42 +14,22 @@ namespace utest
 
     void fixture::setup()
     {
-        if (suite::config::verbosity > verbosity::quiet)
-            fmt::print("{}", fmt::format(fmt::emphasis::bold, HLINE_BOLD " Running '{}.{}' test cases", group(), name()));
-            // printf(HLINE_BOLD " Running '%s.%s' test cases", group(), name());
+        fmt::print("{}"
+            , fmt::format(
+                  fmt::fg(fmt::terminal_color::bright_blue)
+                , "-- {}.{}"
+                , group(), name()
+            ));
     }
     void fixture::teardown()
     {
-        if (printed_something)
+        if (!printed_something)
         {
-            if (errors == 0)
-            {
-                fmt::println("{}", fmt::format(fmt::fg(fmt::terminal_color::green)
-                    , "\n" HLINE_BOLD " '{}.{}' tests passed [{}/{}]"
-                    , group()
-                    , name()
-                    , (cases - errors), cases));
-            }
-            else
-            {
-                fmt::println("{}", fmt::format(fmt::fg(fmt::terminal_color::red)
-                    , "\n" HLINE_BOLD " '{}.{}' tests failed [{}/{}] {} cases didn't pass"
-                    , group()
-                    , name()
-                    , (cases - errors), cases
-                    , errors));
-            }
-        } else {
-            if (errors == 0)
-            {
-                fmt::println("{}", fmt::format(fmt::fg(fmt::terminal_color::green)
-                    , " -> passed [{}/{}]", (cases - errors), cases));
-            }
-            else
-            {
-                fmt::println("{}", fmt::format(fmt::fg(fmt::terminal_color::red)
-                    , " -> failed [{}/{}]", (cases - errors), cases));
-            }
+            auto style = fmt::fg(errors == 0 ? fmt::terminal_color::green : fmt::terminal_color::bright_red);
+            fmt::println(" -> {} {}"
+                , fmt::format(style, "{}", errors == 0 ? "passed" : "failed")
+                , fmt::format("[{}/{}]", (cases - errors), cases)
+            );
         }
     }
 
@@ -66,29 +43,39 @@ namespace utest
             return;
 
         section_changed = false;
-        const auto name_range = make_range(sections.names.begin(), sections.names.begin() + sections.current + 1);
-        const auto sectionString = join(name_range, ".");
-        fmt::println("\n> Section {}", sectionString.c_str());
-        fmt::println(HLINE);
+        const auto name_range = make_range(sections.names.begin() + 1, sections.names.begin() + sections.current + 1);
+        if (name_range.begin() == name_range.end())
+            return;
+
+        const auto sectionString = join(name_range, " > ");
+        fmt::println("{}"
+            , fmt::format(
+                  fmt::fg(fmt::terminal_color::bright_blue)
+                , "-- {}.{} > {}"
+                , group(), name()
+                , sectionString.c_str()
+            ));
     }
 
     void fixture::print_case_header(bool success, const char* location) const
     {
-        fmt::println("{}", fmt::format(fmt::fg(success ? fmt::terminal_color::black : fmt::terminal_color::red)
-            , "[{}] -> {} {}"
-            , caseindex
-            , success ? "Success" : "Failure"
-            , location));
+        auto success_style = fmt::fg(success ? fmt::terminal_color::green : fmt::terminal_color::bright_red);
+        auto location_style = fmt::fg(fmt::terminal_color::bright_black);
+        fmt::println("{} {} -> {}"
+            , fmt::format("[{}]", caseindex)
+            , fmt::format(location_style, "{}", location)
+            , fmt::format(success_style, "{}", success ? "success" : "failure")
+        );
     }
 
     void fixture::print_case_expression(const char* op, const char* left, const char* right)
     {
-        fmt::println("\t~~ While evaluating:\n\t\t\"%s\"\n\t\t\t%s\n\t\t\"%s\"\n", left, op, right);
+        fmt::println("\t\twhile evaluating:\n\t\t\t\"{}\"\n\t\t\t\t{}\n\t\t\t\"{}\"\n", left, op, right);
     }
 
     void fixture::print_case_evaluation(const char* left, const char* right)
     {
-        fmt::println("\t~~ Left: %s\n\t~~ Right: %s"
+        fmt::println("\t\tleft: {}\n\t\tright: {}"
             , left
             , right);
     }
@@ -112,14 +99,11 @@ namespace utest
                     printed_something = true;
                 }
                 print_section();
-                if (!success)
-                    fmt::println("");
                 print_case_header(success, location);
                 if (!success || (suite::config::verbosity >= verbosity::everything))
                 {
                     print_case_expression(op, left_expression, right_expression);
                     print_case_evaluation(left_evaluated, right_evaluated);
-                    fmt::println("");
                 }
             }
         }
@@ -165,9 +149,27 @@ namespace utest
                 numpassed++;
         }
 
-        fmt::println(HLINE_BOLD " {} tests ({} passed), {} cases ({} passed)"
-            , numtests, numpassed
-            , numcases, numcases - numerrors);
+        if (numpassed != numtests)
+        {
+            auto style = fmt::fg(fmt::terminal_color::bright_red);
+            fmt::println(     "--------------------------");
+            fmt::print(style, "-> some tests have failed: ");
+            int pindex = 0;
+            for (const auto& fixture: fixtures)
+            {
+                if (fixture->errors == 0)
+                    continue;
+
+                fmt::print("{}.{} ({})", fixture->group(), fixture->name(), fixture->errors);
+                if ((numtests - numpassed) > (pindex + 2))
+                    fmt::print(", ");
+                else if ((numtests - numpassed) > (pindex + 1))
+                    fmt::print(" & ");
+
+                pindex++;
+            }
+            fmt::println("");
+        }
         return numerrors;
     }
 
